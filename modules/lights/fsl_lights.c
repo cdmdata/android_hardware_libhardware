@@ -29,6 +29,9 @@
 #define DEF_BACKLIGHT_DEV "pwm-backlight"
 #define DEF_BACKLIGHT_PATH "/sys/class/backlight/"
 
+#define WIFI_LED_PATH "/dev/LED2"
+#define BATTERY_LED_PATH "/dev/LED1"
+
 /*****************************************************************************/
 struct lights_module_t {
     struct hw_module_t common;
@@ -67,7 +70,7 @@ static int set_light_backlight(struct light_device_t* dev,
 
     brightness = ((77*((color>>16)&0x00ff)) + (150*((color>>8)&0x00ff)) +
                  (29*(color&0x00ff))) >> 8;
-    LOGV("set_light, get brightness=%d", brightness);
+    LOGI("set_light, get brightness=%d", brightness);
 
     file = fopen(max_path, "r");
     if (!file) {
@@ -79,7 +82,7 @@ static int set_light_backlight(struct light_device_t* dev,
 
     max_brightness = atoi((char *) &max_brightness);
     brightness = brightness * max_brightness / MAX_BRIGHTNESS;
-    LOGV("set_light, max_brightness=%d, target brightness=%d",
+    LOGI("set_light, max_brightness=%d, target brightness=%d",
         max_brightness, brightness);
 
     file = fopen(path, "w");
@@ -94,7 +97,51 @@ static int set_light_backlight(struct light_device_t* dev,
     return result;
 }
 
-static int light_close_backlight(struct hw_device_t *dev)
+
+
+static int set_light_battery(struct light_device_t* dev, struct light_state_t const* state)
+{
+    int result = -1;
+    FILE *file;
+
+    file = fopen(BATTERY_LED_PATH, "w");
+    if (!file) {
+        LOGE("can not open file %s\n", BATTERY_LED_PATH);
+        return result;
+    }
+
+    if (state->color == 0)
+        fprintf(file, "1");
+    else
+        fprintf(file, "0");
+    fclose(file);
+
+    result = 0;
+    return result;
+}
+
+static int set_light_wifi(struct light_device_t* dev, struct light_state_t const* state)
+{
+    int result = -1;
+    FILE *file;
+
+    file = fopen(WIFI_LED_PATH, "w");
+    if (!file) {
+        LOGE("can not open file %s\n", BATTERY_LED_PATH);
+        return result;
+    }
+
+    if (state->color == 0)
+        fprintf(file, "1");
+    else
+        fprintf(file, "0");
+    fclose(file);
+
+    result = 0;
+    return result;
+}
+
+static int light_close(struct hw_device_t *dev)
 {
     struct light_device_t *device = (struct light_device_t*)dev;
     if (device)
@@ -106,26 +153,26 @@ static int light_close_backlight(struct hw_device_t *dev)
 static int lights_device_open(const struct hw_module_t* module,
                               const char* name, struct hw_device_t** device)
 {
-    int status = -EINVAL;
-    LOGV("lights_device_open\n");
+   int status = -EINVAL;
+   struct light_device_t *dev;
+   char value[PROPERTY_VALUE_MAX];
+   dev = malloc(sizeof(*dev)); 
+
+   LOGI("lights_device_open. name=%s\n", name);
+
+    /* initialize our state here */
+   memset(dev, 0, sizeof(*dev));
+
+    /* initialize the procs */
+   dev->common.tag = HARDWARE_DEVICE_TAG;
+   dev->common.version = 0;
+   dev->common.module = (struct hw_module_t*) module;
+   dev->common.close = light_close;
+
+   *device = &dev->common;
+
     if (!strcmp(name, LIGHT_ID_BACKLIGHT)) {
-        struct light_device_t *dev;
-        char value[PROPERTY_VALUE_MAX];
-
-        dev = malloc(sizeof(*dev));
-
-        /* initialize our state here */
-        memset(dev, 0, sizeof(*dev));
-
-        /* initialize the procs */
-        dev->common.tag = HARDWARE_DEVICE_TAG;
-        dev->common.version = 0;
-        dev->common.module = (struct hw_module_t*) module;
-        dev->common.close = light_close_backlight;
-
         dev->set_light = set_light_backlight;
-
-	*device = &dev->common;
 
         property_get("hw.backlight.dev", value, DEF_BACKLIGHT_DEV);
         strcpy(path, DEF_BACKLIGHT_PATH);
@@ -135,11 +182,21 @@ static int lights_device_open(const struct hw_module_t* module,
         strcat(path, "/brightness");
 
         LOGI("max backlight file is %s\n", max_path);
-        LOGI("backlight brightness file is %s\n", path);
-
         status = 0;
     }
 
-    /* todo other lights device init */
+    if (!strcmp(name, LIGHT_ID_WIFI)) {
+        LOGI(">>>>>>>>>>>>> WIFI LIGHT <<<<<<<<<<<<<<<<<<<<<<");
+        dev->set_light = set_light_wifi;
+        status = 0;
+    }
+
+    if (!strcmp(name, LIGHT_ID_BATTERY)) {
+        LOGI(">>>>>>>>>>>>> BATTERY LIGHT <<<<<<<<<<<<<<<<<<<<<<");
+        dev->set_light = set_light_battery;
+        status = 0;
+    }
+
+     /* todo other lights device init */
     return status;
 }
